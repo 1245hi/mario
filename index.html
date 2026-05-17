@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <!-- 禁用手机双击缩放，确保触控流畅 -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>手机版超级马里奥</title>
+    <style>
+        * {
+            box-sizing: border-box;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+        body {
+            margin: 0;
+            padding: 0;
+            background: #000;
+            font-family: Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            overflow: hidden;
+        }
+        #game-container {
+            position: relative;
+            width: 100%;
+            max-width: 600px;
+            aspect-ratio: 16 / 9;
+            background: #5c94fc; /* 经典马里奥蓝天色 */
+            overflow: hidden;
+            border: 2px solid #333;
+        }
+        /* 游戏元素 */
+        #mario {
+            position: absolute;
+            width: 30px;
+            height: 40px;
+            background: #ff4500; /* 马里奥红色 */
+            border-radius: 4px;
+            bottom: 40px;
+            left: 50px;
+            transition: background 0.1s;
+        }
+        /* 帽子和背带裤的小细节 */
+        #mario::after {
+            content: '';
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 10px;
+            background: #ffe4b5; /* 肤色 */
+        }
+        .floor {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            width: 2000px; /* 伸展的很长的地面 */
+            height: 40px;
+            background: #d84b20; /* 砖红色 */
+            border-top: 4px solid #8b2500;
+        }
+        .block {
+            position: absolute;
+            width: 35px;
+            height: 35px;
+            background: #ffcc00;
+            border: 3px solid #cc9900;
+            text-align: center;
+            line-height: 30px;
+            font-weight: bold;
+            color: #fff;
+            bottom: 120px;
+        }
+        .enemy {
+            position: absolute;
+            width: 30px;
+            height: 30px;
+            background: #8b5a2b; /* 板栗仔板栗色 */
+            border-radius: 50% 50% 0 0;
+            bottom: 40px;
+        }
+        /* UI 分数 */
+        #ui {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            color: #fff;
+            font-size: 18px;
+            font-weight: bold;
+            text-shadow: 2px 2px #000;
+            z-index: 10;
+        }
+        /* 手机虚拟手柄 */
+        #controller {
+            width: 100%;
+            max-width: 600px;
+            display: flex;
+            justify-content: space-between;
+            padding: 20px;
+            background: #222;
+        }
+        .btn-group {
+            display: flex;
+            gap: 15px;
+        }
+        .btn {
+            width: 65px;
+            height: 65px;
+            background: #444;
+            color: white;
+            border: 3px solid #666;
+            border-radius: 50%;
+            font-size: 24px;
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            active-background: #666;
+        }
+        .btn:active {
+            background: #ff4500;
+            border-color: #fff;
+        }
+        #btn-jump {
+            background: #008000; /* 绿色跳跃键 */
+        }
+        #btn-jump:active {
+            background: #00ff00;
+        }
+        #game-over-screen {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.8);
+            display: none;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            color: white;
+            z-index: 100;
+        }
+        #restart-btn {
+            margin-top: 15px;
+            padding: 10px 20px;
+            background: #ff4500;
+            color: white;
+            border: none;
+            font-size: 18px;
+            border-radius: 5px;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="game-container">
+        <div id="ui">SCORE: <span id="score">0</span></div>
+        <div id="mario"></div>
+        <!-- 地面和关卡物件通过场景滚动来实现移动 -->
+        <div id="stage">
+            <div class="floor"></div>
+            <!-- 金币砖块 -->
+            <div class="block" style="left: 200px;">?</div>
+            <div class="block" style="left: 245px;">?</div>
+            <div class="block" style="left: 45px; bottom: 160px; background: #cd7f32;">M</div>
+            <!-- 敌人 -->
+            <div class="enemy" style="left: 400px;" id="enemy1"></div>
+            <div class="enemy" style="left: 700px;" id="enemy2"></div>
+        </div>
+
+        <!-- 游戏结束面板 -->
+        <div id="game-over-screen" id="go-screen">
+            <h2>GAME OVER</h2>
+            <button id="restart-btn" onclick="resetGame()">再试一次</button>
+        </div>
+    </div>
+
+    <!-- 手机虚拟按键 -->
+    <div id="controller">
+        <div class="btn-group">
+            <div class="btn" id="btn-left">←</div>
+            <div class="btn" id="btn-right">→</div>
+        </div>
+        <div class="btn-group">
+            <div class="btn" id="btn-jump">A</div>
+        </div>
+    </div>
+
+<script>
+const mario = document.getElementById('mario');
+const stage = document.getElementById('stage');
+const scoreEl = document.getElementById('score');
+const goScreen = document.getElementById('game-over-screen');
+
+// 游戏状态变量
+let marioX = 50;
+let marioY = 0; // 距离地面的高度
+let velocityY = 0;
+let isJumping = false;
+let score = 0;
+let gameOver = false;
+
+// 移动输入状态
+let keys = { left: false, right: false };
+// 镜头滚动视角
+let cameraX = 0;
+
+// 地形配置
+const GROUND_Y = 0;
+const GRAVITY = 0.6;
+
+// 初始化关卡中物体的位置数据（用于碰撞检测）
+let blocks = [
+    { x: 200, y: 80, w: 35, h: 35, hit: false },
+    { x: 245, y: 80, w: 35, h: 35, hit: false }
+];
+let enemies = [
+    { id: 'enemy1', x: 400, y: 0, w: 30, h: 30, alive: true, speed: -1 },
+    { id: 'enemy2', x: 700, y: 0, w: 30, h: 30, alive: true, speed: -1.2 }
+];
+
+// --- 绑定手机触控事件 ---
+function bindTouch(elementId, action, value) {
+    const btn = document.getElementById(elementId);
+    // 监听触控开始
+    btn.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+        if(action === 'jump') { if(!isJumping) jump(); }
+        else { keys[action] = value; }
+    });
+    // 监听触控结束
+    btn.addEventListener('touchend', (e) => {
+        e.preventDefault();
+        if(action !== 'jump') keys[action] = false;
+    });
+}
+
+bindTouch('btn-left', 'left', true);
+bindTouch('btn-right', 'right', true);
+bindTouch('btn-jump', 'jump', true);
+
+// 兼容电脑键盘调试
+window.addEventListener('keydown', (e) => {
+    if(e.key === 'ArrowLeft' || e.key === 'a') keys.left = true;
+    if(e.key === 'ArrowRight' || e.key === 'd') keys.right = true;
+    if(e.key === 'ArrowUp' || e.key === ' ' || e.key === 'w') jump();
+});
+window.addEventListener('keyup', (e) => {
+    if(e.key === 'ArrowLeft' || e.key === 'a') keys.left = false;
+    if(e.key === 'ArrowRight' || e.key === 'd') keys.right = false;
+});
+
+function jump() {
+    if (!isJumping && !gameOver) {
+        velocityY = 12; // 向上跳跃初速度
+        isJumping = true;
+    }
+}
+
+// --- 游戏核心循环 ---
+function update() {
+    if (gameOver) return;
+
+    // 1. 处理左右移动与镜头跟随
+    if (keys.left && marioX > cameraX) {
+        marioX -= 4;
+    }
+    if (keys.right) {
+        marioX += 4;
+    }
+
+    // 镜头跟随：当马里奥走到屏幕过半时，舞台向左滚动
+    if (marioX - cameraX > 250) {
+        cameraX = marioX - 250;
+    }
+
+    // 2. 处理重力与跳跃
+    marioY += velocityY;
+    velocityY -= GRAVITY;
+
+    // 落地检测
+    if (marioY <= GROUND_Y) {
+        marioY = GROUND_Y;
+        velocityY = 0;
+        isJumping = false;
+    }
+
+    // 3. 顶砖块检测（简易顶撞判断）
+    blocks.forEach(b => {
+        if (!b.hit && marioX + 30 > b.x && marioX < b.x + b.w) {
+            // 检查头部是否撞到砖块底部
+            if (marioY + 40 >= b.y && marioY + 35 <= b.y && velocityY > 0) {
+                velocityY = -2; // 弹回来
+                b.hit = true;
+                score += 100;
+                scoreEl.innerText = score;
+                // 让对应的DOM改变外观
+                const blockEls = document.querySelectorAll('.block');
+                blockEls.forEach(el => {
+                    if(parseInt(el.style.left) === b.x) {
+                        el.style.background = '#8b7500';
+                        el.innerText = '0';
+                    }
+                });
+            }
+        }
+    });
+
+    // 4. 敌人移动与碰撞检测
+    enemies.forEach(e => {
+        if (!e.alive) return;
+
+        // 敌人巡逻移动
+        e.x += e.speed;
+        const enemyDom = document.getElementById(e.id);
+        if (enemyDom) {
+            enemyDom.style.left = e.x + 'px';
+        }
+
+        // 马里奥与敌人碰撞盒重叠
+        if (marioX + 30 > e.x && marioX < e.x + e.w && marioY + 40 > e.y && marioY < e.y + e.h) {
+            // 如果是从上往下踩
+            if (velocityY < 0 && marioY > e.y + e.h - 15) {
+                e.alive = false;
+                velocityY = 8; // 踩中后弹起
+                score += 200;
+                scoreEl.innerText = score;
+                if(enemyDom) enemyDom.style.display = 'none';
+            } else {
+                // 被怪咬到了
+                endGame();
+            }
+        }
+    });
+
+    // 5. 渲染画面位置
+    mario.style.left = (marioX - cameraX) + 'px';
+    mario.style.bottom = (40 + marioY) + 'px';
+    stage.style.transform = `translateX(${-cameraX}px)`;
+
+    requestAnimationFrame(update);
+}
+
+function endGame() {
+    gameOver = true;
+    goScreen.style.display = 'flex';
+}
+
+function resetGame() {
+    marioX = 50; marioY = 0; velocityY = 0; score = 0; cameraX = 0;
+    gameOver = false; isJumping = false;
+    scoreEl.innerText = score;
+    goScreen.style.display = 'none';
+    
+    // 重置敌人和砖块状态（此处略，刷新页面最快）
+    window.location.reload();
+}
+
+// 启动游戏
+requestAnimationFrame(update);
+</script>
+</body>
+</html>
+
